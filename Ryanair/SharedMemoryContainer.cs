@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
+
 namespace Ryanair;
 
 public sealed class SharedMemoryContainer
 {
-    private readonly Queue<string> _queue = new();
+    private readonly ConcurrentQueue<string> _queue = new();
     private readonly Lock _lock = new();
 
     public void Add(IEnumerable<string> items)

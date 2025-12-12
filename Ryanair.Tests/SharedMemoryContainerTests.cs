@@ -45,7 +45,7 @@ internal sealed class SharedMemoryContainerTests
     }
 
     [Test]
-    public void AddAndGet_ConcurrentOperations_ThreadSafe()
+    public async Task AddAndGet_ConcurrentOperations_ThreadSafe()
     {
         const int itemsToAdd = 5000;
         
@@ -54,14 +54,14 @@ internal sealed class SharedMemoryContainerTests
         var retrievedItems = new ConcurrentBag<string>();
         var exceptions = new ConcurrentBag<Exception>();
         var lockObject = new Lock();
-        var addCompleted = new ManualResetEventSlim(false);
-        var allThreads = new List<Thread>();
-
+        var addCompleted = new TaskCompletionSource();
+        var producerTasks = new List<Task>();
+        
         for (var i = 0; i < 5; i++)
         {
             var threadId = i;
             
-            var thread = new Thread(() =>
+            var task = Task.Run(() =>
             {
                 try
                 {
@@ -83,17 +83,18 @@ internal sealed class SharedMemoryContainerTests
                 }
             });
             
-            allThreads.Add(thread);
-            thread.Start();
+            producerTasks.Add(task);
         }
 
+        var consumerTasks = new List<Task>();
+        
         for (var i = 0; i < 5; i++)
         {
-            var thread = new Thread(() =>
+            var task = Task.Run(async () =>
             {
                 try
                 {
-                    while (!addCompleted.IsSet || container.Count > 0)
+                    while (!addCompleted.Task.IsCompleted || container.Count > 0)
                     {
                         var item = container.Get();
                         
@@ -103,7 +104,7 @@ internal sealed class SharedMemoryContainerTests
                         }
                         else
                         {
-                            Thread.Sleep(1);
+                            await Task.Delay(1);
                         }
                     }
                 }
@@ -113,23 +114,14 @@ internal sealed class SharedMemoryContainerTests
                 }
             });
             
-            allThreads.Add(thread);
-            thread.Start();
+            consumerTasks.Add(task);
         }
 
-        for (var i = 0; i < 5; i++)
-        {
-            allThreads[i].Join();
-        }
+        await Task.WhenAll(producerTasks);
         
-        addCompleted.Set();
+        addCompleted.SetResult();
         
-        for (var i = 5; i < 10; i++)
-        {
-            allThreads[i].Join();
-        }
-        
-        addCompleted.Dispose();
+        await Task.WhenAll(consumerTasks);
 
         Assert.Multiple(() =>
         {
